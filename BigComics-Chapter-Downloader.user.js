@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         BigComics Chapter Downloader
 // @namespace    https://bigcomics.jp/
-// @version      5.7
-// @description  Download BigComics chapters as ZIP or CBZ — single or full series
+// @version      5.21
+// @description  Download BigComics chapters as ZIP or CBZ
 // @author       Lord Karasuma 
 // @match        https://bigcomics.jp/episodes/*
 // @grant        none
@@ -15,7 +15,7 @@
     // ── Config ──────────────────────────────────────────────────────────
     const STABLE_CHECKS    = 3;    // consecutive identical checks = canvas stable
     const STABLE_INTERVAL  = 250;  // ms between stability checks
-    const AFTER_CLICK_WAIT = 400;  // ms to wait after a click before checking stability
+    const AFTER_CLICK_WAIT = 600;  // ms to wait after a click before checking stability
     const MAX_PAGES        = 200;  // safety cap per chapter
     const STUCK_LIMIT      = 5;    // clicks with no new pages = chapter end
     const BETWEEN_CHAPTERS = 2000; // ms to wait after navigating to a new chapter URL
@@ -127,6 +127,8 @@
             let lastSig = '';
             const check = () => {
                 if (Date.now() - start > timeoutMs) {
+                    // Timeout: resolve with whatever is on screen (even if < minCount),
+                    // only reject if truly nothing is there.
                     const cs = getValidCanvases();
                     return cs.length > 0 ? resolve(cs) : reject('Timeout: no canvas');
                 }
@@ -135,6 +137,11 @@
                     try { return c.toDataURL('image/png').length; } catch(e) { return 0; }
                 }).join(',');
                 if (sig === lastSig && sig !== '' && cs.length >= minCount) {
+                    sameCount++;
+                    if (sameCount >= STABLE_CHECKS) return resolve(cs);
+                } else if (sig === lastSig && sig !== '' && cs.length > 0 && minCount > 1) {
+                    // We wanted minCount but only fewer canvases are stable — count them too.
+                    // This handles single-page spreads (e.g. cover) without waiting for timeout.
                     sameCount++;
                     if (sameCount >= STABLE_CHECKS) return resolve(cs);
                 } else {
@@ -154,18 +161,19 @@
         const isRTLSpread = !!document.querySelector('.-cv.mode-dir-rtl, [class*="mode-dir-rtl"]');
         if (!isRTLSpread) return all;
 
-        // In RTL spread the viewer may keep 2-3 canvases in DOM at once (outgoing + current spread).
-        // DOM order is unreliable ([right, left] or [leftover, right, left]).
-        // In RTL manga layout, page order goes RIGHT → LEFT on screen:
-        //   - Cover / right page of spread = highest X value
-        //   - Left page of spread = lowest X value
-        // Sort DESCENDING so insertion order into the Map is: [cover, pag2, pag3].
-        // canvasKey deduplication in the collector discards repeated outgoing canvas content.
-        return all.sort((a, b) => {
-            const ax = a.getBoundingClientRect().left;
-            const bx = b.getBoundingClientRect().left;
-            return bx - ax; // descending: rightmost first = ordine lettura RTL
-        });
+        // The viewer keeps ~5 canvases in DOM as a circular buffer.
+        // Only collect canvases whose left edge is on-screen: left >= 0 && left < innerWidth.
+        const vw = window.innerWidth;
+        return all
+            .filter(c => {
+                const left = c.getBoundingClientRect().left;
+                return left >= 0 && left < vw;
+            })
+            .sort((a, b) => {
+                const ax = a.getBoundingClientRect().left;
+                const bx = b.getBoundingClientRect().left;
+                return bx - ax; // descending: rightmost first = RTL reading order
+            });
     }
 
     function clickNext() {
@@ -177,7 +185,8 @@
     }
 
     async function goToFirstPage() {
-        setStatus('⏮ Going to first page...');
+        setStatus('⏩ Going to first page...');
+        // RTL viewer: ArrowRight goes backward toward cover (page 1 = rightmost)
         for (let i = 0; i < 60; i++) {
             document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', keyCode: 39, bubbles: true }));
             await sleep(80);
@@ -185,7 +194,46 @@
         await sleep(1000);
     }
 
-    // ── ZIP/CBZ builder ──────────────────────────────────────────────────
+    // ── Cover image — reload with crossOrigin=anonymous to allow canvas export ─
+    function loadCoverFromUrl(src) {
+        return new Promise((resolve) => {
+            const tempImg = new Image();
+            tempImg.crossOrigin = 'anonymous';
+            tempImg.onload = () => {
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width  = tempImg.naturalWidth;
+                    canvas.height = tempImg.naturalHeight;
+                    canvas.getContext('2d').drawImage(tempImg, 0, 0);
+                    console.log(`[BigComics DL] Cover loaded: ${tempImg.naturalWidth}x${tempImg.naturalHeight} from ${src}`);
+                    resolve(canvas.toDataURL('image/jpeg', 0.95));
+                } catch(e) {
+                    console.warn('[BigComics DL] Cover canvas export failed (tainted):', e);
+                    resolve(null);
+                }
+            };
+            tempImg.onerror = () => resolve(null);
+            tempImg.src = src + (src.includes('?') ? '&' : '?') + '_cors=1';
+        });
+    }
+
+    async function getCoverDataURL() {
+        const img = document.querySelector('img[src*="articlevisual"]');
+        if (!img) return null;
+
+        // Try full-res URL first: remove "-lg" suffix (e.g. "cover-lg.jpg" → "cover.jpg")
+        const fullResSrc = img.src.replace(/-lg(\.[a-z]+)(\?|$)/i, '$1$2');
+        if (fullResSrc !== img.src) {
+            console.log('[BigComics DL] Trying full-res cover:', fullResSrc);
+            const dataURL = await loadCoverFromUrl(fullResSrc);
+            if (dataURL) return dataURL;
+            console.warn('[BigComics DL] Full-res cover failed, falling back to original URL.');
+        }
+
+        // Fallback to original URL
+        return loadCoverFromUrl(img.src);
+    }
+
 
     async function buildArchive(pages) {
         const zip = new JSZip();
@@ -195,6 +243,9 @@
         const folder = zip.folder(folderName);
         const ext = imgExt();
 
+        // Pages are in RTL reading order: index 0 = cover, last = final page.
+        // 001.ext = cover, 002.ext = page 2, etc. — correct for both ZIP and CBZ.
+        // CBZ readers should be set to RTL/manga mode to navigate correctly.
         pages.forEach((dataURL, i) => {
             const b64 = dataURL.split(',')[1];
             const bin = atob(b64);
@@ -209,18 +260,6 @@
             compressionOptions: { level: 5 }
         });
         return { blob, folderName };
-    }
-
-    // ── Returns all chapter episode URLs listed on the current page ──
-    function getSeriesChapterUrls() {
-        const links = [...document.querySelectorAll('a[href*="/episodes/"]')];
-        const seen = new Set();
-        const urls = [];
-        for (const a of links) {
-            const url = a.href.split('?')[0];
-            if (!seen.has(url)) { seen.add(url); urls.push(url); }
-        }
-        return urls;
     }
 
     let statusEl = null;
@@ -255,7 +294,11 @@
 
             let canvases;
             try {
-                canvases = await waitStableCanvases(1);
+                // Wait for 2 canvases (spread). If only 1 arrives (last page or single-page
+                // spread), waitStableCanvases falls back: after timeoutMs it resolves with
+                // whatever is available (≥1). We use a shorter timeout (4s) so the fallback
+                // kicks in quickly on the final single page.
+                canvases = await waitStableCanvases(2, 4000);
             } catch(e) {
                 console.log('[BigComics DL] waitStableCanvases timeout → chapter end detected, stopping.');
                 break;
@@ -274,6 +317,7 @@
                     }
                 } catch(e) { /* tainted canvas, skip */ }
             }
+            console.log(`[BigComics DL] click ${clicks}: saw ${canvases.length} canvas(es) (wanted 2), +${newThisRound} new → total ${collected.size}`);
 
             setStatus(`⏳ Collected: ${collected.size} pages (click ${clicks})`);
 
@@ -296,10 +340,21 @@
             try { await document.exitFullscreen(); } catch(e) { /* ignore */ }
         }
 
-        setStatus(`📦 ${collected.size} pages — building archive...`);
+        // Fetch the cover image (rendered as <img>, not canvas)
+        setStatus('🖼 Fetching cover image...');
+        const coverDataURL = await getCoverDataURL();
+        const pages = [...collected.values()];
+        if (coverDataURL) {
+            pages.unshift(coverDataURL);
+            console.log('[BigComics DL] Cover fetched and prepended as page 1.');
+        } else {
+            console.warn('[BigComics DL] Cover not found — ZIP will start from page 2.');
+        }
 
-        const { blob, folderName } = await buildArchive([...collected.values()]);
-        return { blob, folderName, pages: collected.size };
+        setStatus(`📦 ${pages.length} pages — building archive...`);
+
+        const { blob, folderName } = await buildArchive(pages);
+        return { blob, folderName, pages: pages.length };
     }
 
     function triggerDownload(blob, filename) {
@@ -326,53 +381,6 @@
         } finally {
             unlockUI();
         }
-    }
-
-    // ── Full series handler ──
-    async function onDownloadSeries() {
-        lockUI();
-
-        const chapterUrls = getSeriesChapterUrls();
-
-        if (chapterUrls.length === 0) {
-            setStatus('❌ No chapter links found on this page.');
-            unlockUI();
-            return;
-        }
-
-        setStatus(`📚 Found ${chapterUrls.length} chapters. Starting...`);
-        await sleep(800);
-
-        let done = 0;
-        for (const url of chapterUrls) {
-            setStatus(`🔄 Navigating to chapter ${done + 1}/${chapterUrls.length}...`);
-
-            history.pushState({}, '', url);
-            window.dispatchEvent(new PopStateEvent('popstate'));
-            await sleep(BETWEEN_CHAPTERS);
-
-            if (getEpisodeId() !== url.split('/').filter(Boolean).pop()) {
-                location.href = url;
-                return;
-            }
-
-            try {
-                setStatus(`⏳ Downloading chapter ${done + 1}/${chapterUrls.length}...`);
-                const { blob, folderName, pages } = await downloadChapter();
-                const prefix = String(done + 1).padStart(3, '0');
-                triggerDownload(blob, `${prefix}_${folderName}.${archiveExt()}`);
-                done++;
-                setStatus(`✅ Chapter ${done}/${chapterUrls.length} done (${pages} pages). Waiting...`);
-                await sleep(1500);
-            } catch(err) {
-                console.error('[BigComics DL] Chapter error:', err);
-                setStatus(`⚠️ Chapter ${done + 1} failed: ${err}. Skipping...`);
-                await sleep(1000);
-            }
-        }
-
-        setStatus(`✅ Series complete! ${done}/${chapterUrls.length} chapters downloaded.`);
-        unlockUI();
     }
 
     // ── UI ──────────────────────────────────────────────────────────────
@@ -653,7 +661,6 @@
         });
 
         const btnCurrent = makeBtn('bc-dl-current', '⬇ Download this chapter', onDownloadCurrent);
-        const btnSeries  = makeBtn('bc-dl-series',  '📚 Download full series',  onDownloadSeries);
 
         // ── Settings overlay ──
         const settingsPanel = makeSettingsPanel();
@@ -674,7 +681,6 @@
         wrapper.appendChild(titleRow);
         wrapper.appendChild(statusEl);
         wrapper.appendChild(btnCurrent);
-        wrapper.appendChild(btnSeries);
         wrapper.appendChild(archLabel);
         wrapper.appendChild(makeArchiveToggle());
 
@@ -685,9 +691,12 @@
 
     const iv = setInterval(() => {
         if (document.querySelector('.-cv-nav, [class*="-cv-nav"]')) {
-            injectUI(); clearInterval(iv);
+            injectUI();
+            clearInterval(iv);
         }
     }, 500);
-    setTimeout(injectUI, 6000);
+    setTimeout(() => {
+        injectUI();
+    }, 6000);
 
 })();
