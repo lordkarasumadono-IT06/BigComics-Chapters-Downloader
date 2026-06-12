@@ -1,13 +1,13 @@
+[README.md](https://github.com/user-attachments/files/28902583/README.md)
 # BigComics Chapters Downloader
 
-A friendly Tampermonkey/Violentmonkey userscript.js that lets you download manga chapters from [BigComics](https://bigcomics.jp/) as ZIP or CBZ archives, one chapter at a time or an entire series in one click.
+A friendly Tampermonkey/Violentmonkey userscript.js that lets you download manga chapters from [BigComics](https://bigcomics.jp/) as ZIP or CBZ archives.
 
 ---
 
 ## Features
 
 - **Single chapter download** — captures the current episode and packages it into an archive
-- **Full series download** — iterates through all chapter links found on the page and downloads each one sequentially
 - **RTL spread support** — correctly handles right-to-left manga layouts and two-page spreads; pages are always saved in reading order
 - **Automatic fullscreen** — enters fullscreen before capturing to get the highest available canvas resolution
 - **Duplicate frame detection** — fingerprints each canvas in PNG regardless of output format, so transitional or repeated frames are never saved twice
@@ -43,17 +43,12 @@ Ready.
 
    ⬇ Download this chapter 
 
-   📚 Download full series 
-
   Archive format:
     [ ZIP ]   [ CBZ ]
 ```
 
 ### Download this chapter
 Captures every page of the currently open episode, then triggers a download of the archive.
-
-### Download full series
-Finds all episode links on the current page, navigates to each one in sequence, captures its pages, and downloads one archive per chapter. Chapter archives are prefixed with a zero-padded index (`001_`, `002_`, …) to keep them in order.
 
 ### Settings (⚙)
 Click the gear icon in the title bar to open the settings overlay:
@@ -94,7 +89,6 @@ A set of timing constants at the top of the script can be tweaked if your connec
 | `AFTER_CLICK_WAIT` | `400` ms | Wait after clicking "next page" before checking stability |
 | `MAX_PAGES` | `200` | Safety cap — stops capturing after this many pages |
 | `STUCK_LIMIT` | `5` | Clicks that yield no new pages before treating it as the end of the chapter |
-| `BETWEEN_CHAPTERS` | `2000` ms | Wait between chapters during a full series download |
 | `FULLSCREEN_WAIT` | `1200` ms | Wait after entering fullscreen for the canvas to resize |
 
 ---
