@@ -1,4 +1,3 @@
-[README.md](https://github.com/user-attachments/files/28902583/README.md)
 # BigComics Chapters Downloader
 
 A friendly Tampermonkey/Violentmonkey userscript.js that lets you download manga chapters from [BigComics](https://bigcomics.jp/) as ZIP or CBZ archives.
