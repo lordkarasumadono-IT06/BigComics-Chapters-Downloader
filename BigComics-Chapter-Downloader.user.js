@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BigComics Chapter Downloader
 // @namespace    https://bigcomics.jp/
-// @version      5.21
+// @version      5.22
 // @description  Download BigComics chapters as ZIP or CBZ
 // @author       Lord Karasuma 
 // @match        https://bigcomics.jp/episodes/*
@@ -162,12 +162,15 @@
         if (!isRTLSpread) return all;
 
         // The viewer keeps ~5 canvases in DOM as a circular buffer.
-        // Only collect canvases whose left edge is on-screen: left >= 0 && left < innerWidth.
+        // Collect canvases that are at least partially on-screen.
+        // Use rect.right > 0 && rect.left < vw (standard intersection test) instead of
+        // left >= 0, because the right-hand canvas of an RTL spread can have a slightly
+        // negative left edge due to viewer layout, causing it to be wrongly excluded.
         const vw = window.innerWidth;
         return all
             .filter(c => {
-                const left = c.getBoundingClientRect().left;
-                return left >= 0 && left < vw;
+                const rect = c.getBoundingClientRect();
+                return rect.right > 0 && rect.left < vw;
             })
             .sort((a, b) => {
                 const ax = a.getBoundingClientRect().left;
