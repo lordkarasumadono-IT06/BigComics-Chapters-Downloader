@@ -26,10 +26,9 @@ A Tampermonkey/Violentmonkey userscript that lets you download manga chapters fr
 
 2. Click the link below to install the script directly, or copy the raw `.user.js` file and create a new script manually in your userscript manager:
 
-   > **[Install BigComics Chapter Downloader](https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/BigComics-Chapter-Downloader.user.js)**
+   > **[Install BigComics Chapter Downloader](https://github.com/lordkarasumadono-IT06/BigComics-Chapters-Downloader/raw/refs/heads/main/BigComics-Chapter-Downloader.user.js)**
 
-   *(Replace the URL with your actual raw GitHub link after uploading.)*
-
+  
 3. Navigate to any episode on `https://bigcomics.jp/episodes/*` — the panel will appear automatically in the bottom-right corner.
 
 ---
