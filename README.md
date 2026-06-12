@@ -24,7 +24,7 @@ A friendly Tampermonkey/Violentmonkey userscript.js that lets you download manga
    - [Tampermonkey](https://www.tampermonkey.net/) (Chrome, Firefox, Edge, Safari)
    - [Violentmonkey](https://violentmonkey.github.io/) (Chrome, Firefox, Edge)
 
-2. Copy the raw `.user.js` file and create a new script manually in your userscript manager:
+2. Click the link below to install the script directly, or copy the raw `.js` file and create a new script manually in your userscript manager:
 
    > **[Install BigComics Chapter Downloader](https://github.com/lordkarasumadono-IT06/BigComics-Chapters-Downloader/raw/refs/heads/main/BigComics-Chapter-Downloader.user.js)**
 
