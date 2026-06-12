@@ -38,18 +38,15 @@ A friendly Tampermonkey/Violentmonkey userscript.js that lets you download manga
 The panel is injected into the page once the viewer is ready.
 
 ```
-┌─────────────────────────────┐
-│ ⬇ BigComics Downloader   ⚙  
-│ Ready.                      │
-│ ┌──────────────────────────┐│
-│ │  ⬇ Download this chapter ││
-│ └──────────────────────────┘│
-│ ┌──────────────────────────┐│
-│ │ 📚 Download full series  
-│ └──────────────────────────┘│
-│ Archive format:             │
-│  [ ZIP ]  [ CBZ ]           │
-└─────────────────────────────┘
+⬇ BigComics Downloader          ⚙
+Ready.
+
+   ⬇ Download this chapter 
+
+   📚 Download full series 
+
+  Archive format:
+    [ ZIP ]   [ CBZ ]
 ```
 
 ### Download this chapter
