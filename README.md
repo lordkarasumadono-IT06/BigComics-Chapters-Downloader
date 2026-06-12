@@ -1,6 +1,6 @@
 # BigComics Chapter Downloader
 
-A Tampermonkey/Violentmonkey userscript that lets you download manga chapters from [BigComics](https://bigcomics.jp/) as ZIP or CBZ archives, one chapter at a time or an entire series in one click.
+A friendly Tampermonkey/Violentmonkey userscript.js that lets you download manga chapters from [BigComics](https://bigcomics.jp/) as ZIP or CBZ archives, one chapter at a time or an entire series in one click.
 
 ---
 
@@ -24,7 +24,7 @@ A Tampermonkey/Violentmonkey userscript that lets you download manga chapters fr
    - [Tampermonkey](https://www.tampermonkey.net/) (Chrome, Firefox, Edge, Safari)
    - [Violentmonkey](https://violentmonkey.github.io/) (Chrome, Firefox, Edge)
 
-2. Click the link below to install the script directly, or copy the raw `.user.js` file and create a new script manually in your userscript manager:
+2. Copy the raw `.user.js` file and create a new script manually in your userscript manager:
 
    > **[Install BigComics Chapter Downloader](https://github.com/lordkarasumadono-IT06/BigComics-Chapters-Downloader/raw/refs/heads/main/BigComics-Chapter-Downloader.user.js)**
 
@@ -110,16 +110,6 @@ A set of timing constants at the top of the script can be tweaked if your connec
 
 ---
 
-## Changelog
-
-| Version | Changes |
-|---|---|
-| 5.7 | Archive format toggle moved to main panel (always visible) |
-| 5.6 | Fixed settings overlay overflowing panel bounds |
-| 5.5 | Added image format selector (PNG/JPG/WEBP) and quality slider in settings panel |
-| 5.x | RTL spread page ordering, fullscreen capture, duplicate frame deduplication, full series download |
-
----
 
 ## Disclaimer
 
