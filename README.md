@@ -1,6 +1,9 @@
+[README.md](https://github.com/user-attachments/files/28926058/README.md)
 # BigComics Chapters Downloader
 
-A friendly Tampermonkey/Violentmonkey userscript.js that lets you download manga chapters from [BigComics](https://bigcomics.jp/) as ZIP or CBZ archives.
+A friendly Tampermonkey/Violentmonkey userscript that lets you **download manga chapters from [BigComics](https://bigcomics.jp/)** as ZIP or CBZ archives — in one click, directly from your browser.
+
+No external tools required. Works on Chrome, Firefox, and Edge.
 
 ---
 
@@ -27,7 +30,6 @@ A friendly Tampermonkey/Violentmonkey userscript.js that lets you download manga
 
    > **[Install BigComics Chapter Downloader](https://github.com/lordkarasumadono-IT06/BigComics-Chapters-Downloader/raw/refs/heads/main/BigComics-Chapter-Downloader.user.js)**
 
-  
 3. Navigate to any episode on `https://bigcomics.jp/episodes/*` — the panel will appear automatically in the bottom-right corner.
 
 ---
@@ -100,6 +102,19 @@ A set of timing constants at the top of the script can be tweaked if your connec
 
 ---
 
+## Compatibility
+
+Tested on:
+
+| Browser | Userscript manager |
+|---|---|
+| Chrome / Chromium | Tampermonkey, Violentmonkey |
+| Firefox | Tampermonkey, Violentmonkey |
+| Edge | Tampermonkey |
+
+The script targets `https://bigcomics.jp/episodes/*` and is compatible with the BigComics web manga reader as of 2025.
+
+---
 
 ## Disclaimer
 
