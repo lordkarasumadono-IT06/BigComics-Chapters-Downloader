@@ -18,7 +18,6 @@
     const AFTER_CLICK_WAIT = 600;  // ms to wait after a click before checking stability
     const MAX_PAGES        = 200;  // safety cap per chapter
     const STUCK_LIMIT      = 5;    // clicks with no new pages = chapter end
-    const BETWEEN_CHAPTERS = 2000; // ms to wait after navigating to a new chapter URL
     const FULLSCREEN_WAIT  = 1200; // ms to wait after entering fullscreen for canvas to resize
     // ────────────────────────────────────────────────────────────────────
 
