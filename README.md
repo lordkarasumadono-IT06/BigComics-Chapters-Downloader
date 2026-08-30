@@ -14,7 +14,8 @@ No external tools required. Works on Chrome, Firefox, and Edge.
 - **Duplicate frame detection** — fingerprints each canvas in PNG regardless of output format, so transitional or repeated frames are never saved twice, with in-place retries for slow-loading pages
 - **Cover image** — fetches the episode's cover image (full-res when available) and prepends it as page 1 of the archive
 - **Automatic metadata detection & embedding** — Author, Publisher, and Publication date are scraped straight off the episode page and, if enabled, embedded into every image (PNG iTXt chunks; JPEG/WEBP EXIF, including Windows XP* tags for full Unicode support) and into a `ComicInfo.xml` at the archive root (ComicRack/Anansi schema — read by Komga, Kavita, YACReader, CDisplayEx, and similar readers). Manual override fields are available in Settings for the rare case auto-detection gets it wrong.
-- **Page-count verification** — cross-checks the collected page count against the viewer's own page counter and warns (in the status line / console) if pages may be missing
+- **Page-count verification** — cross-checks the collected page count against the viewer's own page counter and warns (in the status line / console) if pages may be missing; the warning only fires on an ambiguous stop (stability timeout or stuck limit) — a confirmed promotional-page stop is expected to fall short of the viewer's total, since that total includes the promo slides deliberately not saved, so it's never flagged. On an ambiguous mismatch, a note is also written into `ComicInfo.xml` itself (`<Notes>`), so it stays visible from inside a comic reader later on, not just in the browser console at download time
+- **Resilient page collection** — tolerates a few full stability timeouts in a row (e.g. a slow-loading page) before concluding the chapter has really ended, instead of stopping on the first hiccup
 - **Flexible image format** — choose between PNG (lossless), JPG, or WebP; quality slider for lossy formats (default 95%)
 - **Flexible archive format** — choose between ZIP and CBZ
 - **Persistent preferences** — all settings are saved to `localStorage` and restored on the next visit
@@ -113,6 +114,8 @@ A set of timing constants at the top of the script can be tweaked if your connec
 | `SETTLE_TIMEOUT` | `6000` ms | Max time `waitStableCanvases` waits for a round to settle |
 | `MAX_SAME_RETRIES` | `4` | In-place re-checks if a page looks unchanged from the previous round (slow image load) |
 | `SAME_RETRY_WAIT` | `900` ms | Wait between in-place re-checks |
+| `TIMEOUT_RETRIES` | `3` | Full stability timeouts tolerated in a row before accepting it as chapter end, instead of stopping on the first one (protects against a mid-chapter network hiccup being mistaken for the end) |
+| `TIMEOUT_RETRY_WAIT` | `2500` ms | Wait before retrying after a full stability timeout |
 
 ---
 
@@ -133,7 +136,7 @@ Tested on:
 | Firefox | Tampermonkey, Violentmonkey |
 | Edge | Tampermonkey |
 
-The script targets `https://bigcomics.jp/episodes/*` and is compatible with the BigComics web manga reader (current version: 6.1).
+The script targets `https://bigcomics.jp/episodes/*` and is compatible with the BigComics web manga reader (current version: 6.4).
 
 ---
 
