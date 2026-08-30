@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BigComics Chapter Downloader
 // @namespace    https://bigcomics.jp/
-// @version      6.1
+// @version      6.4
 // @description  Download BigComics chapters as ZIP or CBZ, with auto-detected metadata (embedded in images + ComicInfo.xml) and page-count verification
 // @author       Lord Karasuma 
 // @match        https://bigcomics.jp/episodes/*
@@ -22,6 +22,8 @@
     const SETTLE_TIMEOUT   = 6000; // ms waitStableCanvases will wait for a round to settle
     const MAX_SAME_RETRIES = 4;    // extra in-place re-checks if a page looks unchanged (slow image load)
     const SAME_RETRY_WAIT  = 900;  // ms to wait between in-place re-checks
+    const TIMEOUT_RETRIES  = 3;    // full waitStableCanvases timeouts to tolerate before accepting chapter end (network hiccups)
+    const TIMEOUT_RETRY_WAIT = 2500; // ms to wait before retrying after a full stability timeout
     // ────────────────────────────────────────────────────────────────────
 
     // ── Preferences (persisted in localStorage) ─────────────────────────
@@ -202,10 +204,28 @@
         const scope = document.querySelectorAll('[class*="-cv"], [class*="pagenum"], [class*="page-num"], [class*="pager"]');
         let best = 0;
         for (const root of scope) {
+            // Check leaf nodes first (counter as a single "27/53" text node) — the
+            // common case. ALSO check every element's own concatenated textContent
+            // with whitespace stripped: some viewers split the counter across two
+            // sibling elements (e.g. a big "27" span + a small "/53" span, confirmed
+            // via testing/screenshot), so no single leaf node ever contains the full
+            // "N/M" string and the leaf-only check silently finds nothing. Restrict
+            // to short concatenations (<=12 chars) to avoid false positives from
+            // unrelated page text picked up by the broader selectors above.
             const nodes = root.children.length ? [...root.querySelectorAll('*')].filter(n => !n.children.length) : [root];
             for (const el of nodes) {
                 const t = (el.textContent || '').trim();
                 const m = t.match(/^(\d{1,4})\s*[\/／]\s*(\d{1,4})$/);
+                if (m) {
+                    const total = parseInt(m[2], 10);
+                    if (total > best && total < MAX_PAGES) best = total;
+                }
+            }
+            const candidates = [root, ...root.querySelectorAll('*')];
+            for (const el of candidates) {
+                const t = (el.textContent || '').replace(/\s+/g, '');
+                if (t.length === 0 || t.length > 12) continue;
+                const m = t.match(/^(\d{1,4})[\/／](\d{1,4})$/);
                 if (m) {
                     const total = parseInt(m[2], 10);
                     if (total > best && total < MAX_PAGES) best = total;
@@ -707,7 +727,7 @@
     // own Properties > Details tab doesn't read PNG text chunks at all, and
     // only surfaces a handful of the JPEG EXIF fields the per-image metadata
     // above writes. Only fields with a non-empty value are emitted.
-    function buildComicInfoXml({ series, title, number, writer, penciller, publisher, date, pageCount, summary, web }) {
+    function buildComicInfoXml({ series, title, number, writer, penciller, publisher, date, pageCount, summary, web, notes }) {
         let year = '', month = '', day = '';
         const m = date && date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
         if (m) { year = m[1]; month = String(parseInt(m[2], 10)); day = String(parseInt(m[3], 10)); }
@@ -717,6 +737,7 @@
             ['Series', series],
             ['Number', number],
             ['Summary', summary],
+            ['Notes', notes],
             ['Writer', writer],
             ['Penciller', penciller],
             ['Publisher', publisher],
@@ -733,7 +754,7 @@
         return `<?xml version="1.0" encoding="utf-8"?>\n<ComicInfo xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n${body}\n</ComicInfo>\n`;
     }
 
-    async function buildArchive(pages) {
+    async function buildArchive(pages, mismatchInfo) {
         const zip = new JSZip();
         const seriesTitle = sanitize(getSeriesTitle());
         const episodeTitle = sanitize(getEpisodeTitle());
@@ -759,8 +780,18 @@
         // ComicInfo.xml at the archive root, alongside the pages. Title/Series/
         // PageCount are always available; Writer/Publisher/date only when
         // metadata embedding is on (same toggle as the per-image metadata above).
+        // PageCount always reflects the REAL number of pages saved in this archive
+        // (not the viewer's own counter, which can include promo slides we skip —
+        // see mismatchInfo below). When the collection stopped on an ambiguous
+        // condition (stability timeout / stuck limit) with fewer pages than the
+        // viewer reported, that's recorded in <Notes> too, so it's visible from
+        // inside a comic reader later on — not just in the browser console at
+        // download time.
         if (metaEnabled) {
             const { writer, penciller } = splitAuthorsByRole(resolved.author);
+            const notes = mismatchInfo
+                ? `Possibly incomplete: BigComics viewer reported ${mismatchInfo.reportedTotal} pages, ${pages.length} were captured (BigComics Chapter Downloader).`
+                : '';
             const comicInfoXml = buildComicInfoXml({
                 series: seriesTitle,
                 title: episodeTitle,
@@ -772,6 +803,7 @@
                 pageCount: pages.length,
                 summary: extractSummaryFromPage(),
                 web: location.href,
+                notes,
             });
             folder.file('ComicInfo.xml', comicInfoXml);
         }
@@ -860,15 +892,19 @@
         let stuckCount = 0;
         let clicks = 0;
         let prevRoundSig = null; // full-content signature of the last round's canvases
+        let timeoutRetries = 0;  // full waitStableCanvases timeouts tolerated in a row (network hiccups)
+        let stopReason = null;   // why the loop ended — used below to decide whether the page-count warning is meaningful
 
         while (clicks < MAX_PAGES) {
             if (cancelRequested) {
                 console.log(`[BigComics DL] STOP REASON: cancelled by user at click ${clicks}, ${collected.size} pages collected.`);
+                stopReason = 'cancelled';
                 break;
             }
 
             if (getEpisodeId() !== startId) {
                 console.log(`[BigComics DL] STOP REASON: chapter/episode changed mid-loop at click ${clicks}, ${collected.size} pages collected.`);
+                stopReason = 'chapter-changed';
                 break;
             }
 
@@ -878,6 +914,7 @@
             // them in its total, so it can't be used as a stop condition on its own.
             if (await isConfirmedPromoPage(viewer)) {
                 console.log(`[BigComics DL] STOP REASON: promotional page confirmed at click ${clicks}, ${collected.size} pages collected.`);
+                stopReason = 'promo';
                 break;
             }
 
@@ -906,9 +943,26 @@
             }
 
             if (!canvases) {
+                // A full stability timeout (not a single "content unchanged" round —
+                // see MAX_SAME_RETRIES above — but NO canvas ever stabilizing at all)
+                // is ambiguous: it can mean either a genuine end of chapter OR just a
+                // slow network hiccup on one particular page. Confirmed via a real
+                // capture: this used to be treated as an immediate, unconditional
+                // "chapter end", silently truncating the download partway through
+                // (e.g. stopped at 25/53 real pages). Tolerate a few full retries
+                // with a longer pause before actually giving up.
+                if (timeoutRetries < TIMEOUT_RETRIES && !cancelRequested && getEpisodeId() === startId) {
+                    timeoutRetries++;
+                    console.log(`[BigComics DL] click ${clicks}: full stability timeout — retrying (${timeoutRetries}/${TIMEOUT_RETRIES}), possible slow page load.`);
+                    setStatus(`⏳ Slow page load, retrying (${timeoutRetries}/${TIMEOUT_RETRIES})...`);
+                    await sleep(TIMEOUT_RETRY_WAIT);
+                    continue; // stay at the same click position, don't advance/give up yet
+                }
                 console.log(`[BigComics DL] STOP REASON: waitStableCanvases timeout at click ${clicks}, ${collected.size} pages collected — treated as chapter end.`);
+                stopReason = 'timeout';
                 break;
             }
+            timeoutRetries = 0; // reset once a round succeeds again
             if (cancelRequested || getEpisodeId() !== startId) continue; // let the top-of-loop checks handle the stop
 
             prevRoundSig = sig;
@@ -916,6 +970,7 @@
             // Re-check after the canvases settle, in case the promo page just loaded.
             if (await isConfirmedPromoPage(viewer)) {
                 console.log(`[BigComics DL] STOP REASON: promotional page confirmed (post-stabilize) at click ${clicks}, ${collected.size} pages collected.`);
+                stopReason = 'promo';
                 break;
             }
 
@@ -940,6 +995,7 @@
                 stuckCount++;
                 if (stuckCount >= STUCK_LIMIT) {
                     console.log(`[BigComics DL] STOP REASON: stuck limit (${STUCK_LIMIT} rounds, no new pages even after in-place retries) at click ${clicks}, ${collected.size} pages collected.`);
+                    stopReason = 'stuck';
                     break;
                 }
             } else {
@@ -950,15 +1006,27 @@
             clicks++;
             await sleep(AFTER_CLICK_WAIT);
         }
+        if (!stopReason) stopReason = 'max-pages'; // loop exhausted MAX_PAGES without any break above
 
         if (collected.size === 0) throw new Error('No pages collected.');
 
         // Advisory-only cross-check against whatever page counter the viewer chrome
         // exposes. This can't be guaranteed to match 1:1 (it may or may not include
-        // the cover / promo slides), so it's surfaced as a warning, not a hard error.
+        // the cover / promo slides), so it's surfaced as a warning, not a hard error —
+        // and ONLY when the stop itself was ambiguous. A confirmed promo-page stop
+        // ('promo') is expected to fall short of the viewer's own total, since that
+        // total includes the promotional slides we deliberately don't save (confirmed
+        // via a real capture: 53 reported vs. 47 real pages + cover, entirely correct,
+        // yet the old unconditional check still flagged it as "possibly incomplete").
         const reportedTotal = detectReportedTotalPages();
-        if (reportedTotal && reportedTotal > collected.size) {
-            console.warn(`[BigComics DL] Possible missing pages: viewer reports ${reportedTotal}, collected ${collected.size}.`);
+        const ambiguousStop = stopReason === 'timeout' || stopReason === 'stuck' || stopReason === 'max-pages';
+        const mismatchInfo = (ambiguousStop && reportedTotal && reportedTotal > collected.size)
+            ? { reportedTotal }
+            : null;
+        if (mismatchInfo) {
+            console.warn(`[BigComics DL] Possible missing pages: viewer reports ${reportedTotal}, collected ${collected.size} (stop reason: ${stopReason}).`);
+            setStatus(`⚠️ Possibile capitolo incompleto: il viewer indica ${reportedTotal} pagine, ne sono state raccolte ${collected.size}.`);
+            await sleep(2500); // let the warning be visible before the next status overwrites it
         }
 
         // Exit fullscreen so the browser UI is restored after download
@@ -979,10 +1047,10 @@
 
         setStatus(`📦 ${pages.length} pages — building archive...`);
 
-        const { blob, folderName } = await buildArchive(pages);
+        const { blob, folderName } = await buildArchive(pages, mismatchInfo);
         return {
             blob, folderName, pages: pages.length,
-            pageMismatch: (reportedTotal && reportedTotal > collected.size) ? reportedTotal : null,
+            pageMismatch: mismatchInfo ? mismatchInfo.reportedTotal : null,
         };
     }
 
