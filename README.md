@@ -44,10 +44,10 @@ The panel is injected into the page once the viewer is ready.
 ⬇ BigComics Downloader          ⚙
 Ready.
 
-   ⬇ Download this chapter 
+⬇ Download this chapter 
 
-  Archive format:
-    [ ZIP ]   [ CBZ ]
+Archive format:
+[ ZIP ]   [ CBZ ]
 ```
 
 ### Download this chapter
